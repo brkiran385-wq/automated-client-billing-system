@@ -1,0 +1,402 @@
+{
+  "name": "Invoice Automation Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "c00540bf-cbf8-4c87-84b9-e7d97bd1291e",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1MZuhESEYbuFzB7fC04Mk-SLyAc0LTsRDikZROHvB1NY",
+          "mode": "list",
+          "cachedResultName": "Untitled spreadsheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1MZuhESEYbuFzB7fC04Mk-SLyAc0LTsRDikZROHvB1NY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 225642521,
+          "mode": "list",
+          "cachedResultName": "invoice_factory_enterprise_dataset",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1MZuhESEYbuFzB7fC04Mk-SLyAc0LTsRDikZROHvB1NY/edit#gid=225642521"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        224,
+        0
+      ],
+      "id": "9a44d654-76db-45d5-86cf-f09587364b96",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "bFUfy1oIQ2l7UdfS",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "d544028b-73ec-48ae-a338-47cc3ee6532c",
+              "leftValue": "={{ $json.Status }}",
+              "rightValue": "Unbilled",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        0
+      ],
+      "id": "c5bedb41-1299-466f-9f48-5dfde386eb2f",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json);\nconst clients = {};\n\nfor (const row of rows) {\n  const id = row.Client_ID;\n  if (!clients[id]) {\n    clients[id] = {\n      Client_ID: id,\n      Company_Name: row.Company_Name,\n      Billing_Email: row.Billing_Email,\n      Address: row.Address,\n      lineItems: [],\n      total: 0\n    };\n  }\n  const amount = Number(row.Quantity) * Number(row.Rate);\n  clients[id].lineItems.push({\n    description: row.Description,\n    quantity: row.Quantity,\n    rate: row.Rate,\n    amount: amount\n  });\n  clients[id].total += amount;\n}\n\nreturn Object.values(clients).map(c => ({ json: c }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "id": "4092373f-d759-491b-95cb-83b6fdb8bf99",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const client = $json;\nconst date = new Date().toLocaleDateString('en-GB', {day:'2-digit', month:'long', year:'numeric'});\nconst invoiceNum = 'INV-' + client.Client_ID + '-' + new Date().getFullYear() + String(new Date().getMonth()+1).padStart(2,'0');\n\nconst rows = client.lineItems.map(item => `\n  <tr>\n    <td style=\"padding:8px;border-bottom:1px solid #eee\">${item.description}</td>\n    <td style=\"padding:8px;border-bottom:1px solid #eee;text-align:center\">${item.quantity}</td>\n    <td style=\"padding:8px;border-bottom:1px solid #eee;text-align:right\">£${Number(item.rate).toFixed(2)}</td>\n    <td style=\"padding:8px;border-bottom:1px solid #eee;text-align:right\">£${Number(item.amount).toFixed(2)}</td>\n  </tr>`).join('');\n\nconst html = `<!DOCTYPE html><html><head><style>\n  body{font-family:Arial,sans-serif;padding:40px;color:#222;max-width:800px}\n  h1{color:#534AB7} table{width:100%;border-collapse:collapse;margin-top:20px}\n  th{background:#534AB7;color:#fff;padding:10px;text-align:left}\n  .total{font-size:20px;font-weight:bold;text-align:right;margin-top:20px;color:#534AB7}\n  .meta{color:#666;font-size:14px}\n</style></head><body>\n<h1>Invoice</h1>\n<p><strong style=\"font-size:18px\">${client.Company_Name}</strong><br>\n<span class=\"meta\">${client.Address}<br>${client.Billing_Email}</span></p>\n<p class=\"meta\">Invoice No: <strong>${invoiceNum}</strong> &nbsp;|&nbsp; Date: <strong>${date}</strong></p>\n<table>\n  <tr><th>Description</th><th style=\"text-align:center\">Qty</th><th style=\"text-align:right\">Rate</th><th style=\"text-align:right\">Amount</th></tr>\n  ${rows}\n</table>\n<div class=\"total\">Total Due: £${Number(client.total).toLocaleString('en-GB', {minimumFractionDigits:2})}</div>\n<p class=\"meta\" style=\"margin-top:40px\">Payment due within 30 days. Thank you for your business.</p>\n</body></html>`;\n\nreturn { json: { ...client, html, invoiceNum } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        0
+      ],
+      "id": "3199dec8-340c-498d-a6bf-03c47993a82d",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "html": "={{ $json.html }}",
+        "additionalOptions": {}
+      },
+      "type": "n8n-nodes-pdfbolt.pdfBolt",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        0
+      ],
+      "id": "6e97b0b4-c669-4b24-a2bf-234a7e723054",
+      "name": "PDFBolt",
+      "credentials": {
+        "pdfBoltApi": {
+          "id": "DOrofFNNZFzy1mhp",
+          "name": "PDFBolt account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "=brkiran385@gmail.com",
+        "subject": "=Invoice {{ $('Code in JavaScript1').item.json.invoiceNum }} – {{ $('Code in JavaScript1').item.json.Company_Name }}",
+        "message": "=<p>Dear {{ $('Code in JavaScript1').item.json.Company_Name }} team,</p> <p>Please find your invoice attached.</p> <p><strong>Total Due: £{{ $('Code in JavaScript1').item.json.total }}</strong></p> <p>Payment due within 30 days. Thank you.</p>",
+        "options": {
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {}
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1344,
+        0
+      ],
+      "id": "124f0e3a-3df0-435c-aeb3-10b55eef4ab4",
+      "name": "Send a message",
+      "webhookId": "0405d737-e739-4c65-9e28-41a75647b7a5",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "6fvn6I73MHWkd1bw",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1MZuhESEYbuFzB7fC04Mk-SLyAc0LTsRDikZROHvB1NY",
+          "mode": "list",
+          "cachedResultName": "Untitled spreadsheet",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1MZuhESEYbuFzB7fC04Mk-SLyAc0LTsRDikZROHvB1NY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 225642521,
+          "mode": "list",
+          "cachedResultName": "invoice_factory_enterprise_dataset",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1MZuhESEYbuFzB7fC04Mk-SLyAc0LTsRDikZROHvB1NY/edit#gid=225642521"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Client_ID": "={{ $('Code in JavaScript1').item.json.Client_ID }}",
+            "Status": "Billed"
+          },
+          "matchingColumns": [
+            "Client_ID"
+          ],
+          "schema": [
+            {
+              "id": "Item_ID",
+              "displayName": "Item_ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Client_ID",
+              "displayName": "Client_ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Company_Name",
+              "displayName": "Company_Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Billing_Email",
+              "displayName": "Billing_Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Address",
+              "displayName": "Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Description",
+              "displayName": "Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Quantity",
+              "displayName": "Quantity",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Rate",
+              "displayName": "Rate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "e63d0c5b-96c8-4302-8fbb-ae4260cbecda",
+      "name": "Update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "bFUfy1oIQ2l7UdfS",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "PDFBolt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDFBolt": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "ded48839-4d36-461d-bdab-b121ab1f06ca",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "c63ad868ac3eb4b2466b830144f2e7d3c63b10567768d46349597cbb7791c25e"
+  },
+  "id": "tI0jOg3F4oj3ixP5",
+  "tags": []
+}
